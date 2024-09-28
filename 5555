@@ -21,59 +21,72 @@ import { HolderOutlined } from '@ant-design/icons'
 
 // const state = {
 //     columns:[],
+
 //     columnsItems:[
-//         {columnId:"",
-//         cards:[]
+//       {columnId:"",
+//         next:2,
+//         prev:1,
+//         last:4
+//         data:[]
 //         },
-//         []
 //     ]
+
 // }
 
 const cardReducer = (state, action) => {
-    action.type.columnId
-    action.type.cardId
 
     if (action.type === 'SET_COLUMNS') {
-        return { ...action, columns: action.payload }
+        const columnsItems = action.payload.map(c => {
+            //create cards state per column
+            return ({
+                columnId: c.id,
+                prev: null,
+                last: null,
+                data: [...c.items]
+            })
+        })
+        return { columnsItems, columns: action.payload }
     }
     if (action.type === 'ADD_NEW_CARDS') {
-        state.columnsItems.array.forEach((column) => {
-            if (action.payload.columnId === column.columnId) {
-                return [...column.cards, ...action.payload.newCards]
-                return {
-                    responseData,
-                    data: state
-                    ? [...state.data, ...res?.data.data]
-                    : [...res?.data.data],
+        let newState = { ...state }
+        state.columnsItems.forEach((columnItem) => {
+            if (action.payload.columnId === columnItem.columnId) {
+                //find the column
+
+                newState = {
+                    ...action.payload.responseData,
+                    data: [...state.data, ...action.payload.responseData?.data]
                 }
             }
         })
+        return newState
     }
 
-    const newState = {
-        ...res.data,
-        data: prev
-            ? [...prev.data, ...res?.data.data]
-            : [...res?.data.data],
-    }
+    // const newState = {
+    //     ...res.data,
+    //     data: prev
+    //         ? [...prev.data, ...res?.data.data]
+    //         : [...res?.data.data],
+    // }
 
     if (action.type === 'MOVE_CARD') {
         const newState = { ...state }
 
-        newState.columnsItems.forEach((column) => {
-            if (column.columnId === action.payload.currentColumn) {
+        newState.columnsItems.forEach((columnItem) => {
+            if (columnItem.columnId === action.payload.currentColumn) {
                 // remove card from current column
-                column.filter((card) => card.id === action.payload.cardId)
+                columnItem.data = columnItem.data.filter((card) => card.id !== action.payload.cardId)
             }
 
-            if (column.columnId === action.payload.targetColumn) {
+            if (columnItem.columnId === action.payload.targetColumn) {
                 // add card to target column
-                column.push({
+                columnItem.data.push({
                     id: action.payload.cardId,
                     columnId: action.payload.targetColumn,
-                })
+                }).sort((a, b) => a.id - b.id)
             }
         })
+        return newState
     }
 }
 
@@ -104,8 +117,8 @@ const Kanbanboard = (props) => {
         setCards(list)
     }
 
-    const dragCardTo = () => {}
-    const dragCardFrom = () => {}
+    const dragCardTo = () => { }
+    const dragCardFrom = () => { }
 
     const fetchColumns = () => {
         setTableIsLoading(true)
@@ -144,7 +157,7 @@ const Kanbanboard = (props) => {
                 height={'100000px'}
                 style={{ height: '100000px' }}
                 onDragEnd={dragEndHandler}
-                // style={{ position: 'reltaive' }}
+            // style={{ position: 'reltaive' }}
             >
                 <ToolBar
                     form={toolbarForm}
@@ -281,8 +294,8 @@ function Card(props) {
     })
     const style = transform
         ? {
-              transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-          }
+            transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        }
         : undefined
 
     const { token } = theme.useToken()
