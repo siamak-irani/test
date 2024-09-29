@@ -1,15 +1,5 @@
-import {
-    Col,
-    Descriptions,
-    Flex,
-    Form,
-    Input,
-    InputNumber,
-    Row,
-    Select,
-    theme,
-} from 'antd'
-import { Fragment, useCallback, useEffect, useReducer, useState } from 'react'
+import { Col, Form, Input, InputNumber, Row, Select, theme } from 'antd'
+import { useEffect, useReducer, useState } from 'react'
 import { DndContext } from '@dnd-kit/core'
 import { useDroppable } from '@dnd-kit/core'
 import { useDraggable } from '@dnd-kit/core'
@@ -17,114 +7,123 @@ import PropTypes from 'prop-types'
 import api from '../axios-proxy'
 import InfiniteScroll from 'react-infinite-scroll-component'
 import { useDebounce } from 'react-use'
-import { HolderOutlined } from '@ant-design/icons'
-
-// const state = {
-//     columns:[],
-
-//     columnsItems:[
-//       {columnId:"",
-//         next:2,
-//         prev:1,
-//         last:4
-//         data:[]
-//         },
-//     ]
-
-// }
+import { HolderOutlined, NumberOutlined } from '@ant-design/icons'
+import AvatarGroup from './AvatarGroup'
 
 const cardReducer = (state, action) => {
-
     if (action.type === 'SET_COLUMNS') {
-        const columnsItems = action.payload.map(c => {
+        const columnsItems = action.payload.map((c) => {
             //create cards state per column
-            return ({
+            return {
                 columnId: c.id,
-                prev: null,
-                last: null,
-                data: [...c.items]
-            })
+                prev: undefined,
+                next: 2,
+                last: 1000,
+                data: [],
+            }
         })
         return { columnsItems, columns: action.payload }
     }
+
     if (action.type === 'ADD_NEW_CARDS') {
         let newState = { ...state }
-        state.columnsItems.forEach((columnItem) => {
+        newState.columnsItems.forEach((columnItem, index) => {
             if (action.payload.columnId === columnItem.columnId) {
                 //find the column
 
-                newState = {
+                newState.columnsItems[index] = {
+                    columnId: action.payload.columnId,
                     ...action.payload.responseData,
-                    data: [...state.data, ...action.payload.responseData?.data]
+                    data: [
+                        ...(columnItem.data || []),
+                        ...action.payload.responseData?.data,
+                    ],
                 }
             }
         })
+
         return newState
     }
-
-    // const newState = {
-    //     ...res.data,
-    //     data: prev
-    //         ? [...prev.data, ...res?.data.data]
-    //         : [...res?.data.data],
-    // }
 
     if (action.type === 'MOVE_CARD') {
         const newState = { ...state }
 
         newState.columnsItems.forEach((columnItem) => {
-            if (columnItem.columnId === action.payload.currentColumn) {
+            if (
+                +action.payload.currentColumn === +action.payload.targetColumn
+            ) {
+                // if current and targe is the same do nothing
+                return state
+            }
+
+            if (+columnItem.columnId === action.payload.currentColumn) {
                 // remove card from current column
-                columnItem.data = columnItem.data.filter((card) => card.id !== action.payload.cardId)
+
+                columnItem.data = columnItem.data.filter((card) => {
+                    return card.id !== action.payload.cardId
+                })
             }
 
             if (columnItem.columnId === action.payload.targetColumn) {
                 // add card to target column
                 columnItem.data.push({
                     id: action.payload.cardId,
-                    columnId: action.payload.targetColumn,
-                }).sort((a, b) => a.id - b.id)
+                    columnId: +action.payload.targetColumn,
+                })
             }
         })
         return newState
     }
 }
 
-const Kanbanboard = (props) => {
-    // const [columns, setColumns] = useState([...props.columns])
-    const [cards, setCards] = useState([...props.cards])
-
-    const [columns, setColumns] = useState()
+const Kanbanboard = () => {
     const [tableIsloading, setTableIsLoading] = useState(false)
 
-    const [state, dispatch] = useReducer(cardReducer, {})
+    const [state, dispatch] = useReducer(cardReducer, {
+        columns: [],
+        columnsItems: [],
+    })
 
     const [toolbarForm] = Form.useForm()
 
     const [size, setSize] = useState(5)
 
-    function dragEndHandler(e) {
+    async function dragEndHandler(e) {
+        // api.patch('api/somet-endpoint', {
+        //     cardId: e.active.id,
+        //     newState: e.over.id,
+        // })
+        //     .then((res) => {
+        //         console.log('hello')
+        //         dispatch({
+        //             type: 'MOVE_CARD',
+
+        //             payload: {
+        //                 cardId: e.active.id,
+        //                 currentColumn: e.active.data.current.columnId,
+        //                 targetColumn: e.over.id,
+        //             },
+        //         })
+        //     })
+        //     .catch((err) => {
+        //         console.log(err)
+        //     })
         dispatch({
             type: 'MOVE_CARD',
+
             payload: {
                 cardId: e.active.id,
-                currentColumn: e.active.columnId,
+                currentColumn: e.active.data.current.columnId,
                 targetColumn: e.over.id,
             },
         })
-        const list = [...cards]
-        list.find((c) => c.id === e.active.id).columnId = e.over.id
-        setCards(list)
     }
-
-    const dragCardTo = () => { }
-    const dragCardFrom = () => { }
 
     const fetchColumns = () => {
         setTableIsLoading(true)
         api.get(`http://localhost:3000/columns/`)
             .then((res) => {
-                setColumns([...res.data])
+                dispatch({ type: 'SET_COLUMNS', payload: res.data })
             })
             .catch((err) => {
                 console.log(err)
@@ -149,16 +148,11 @@ const Kanbanboard = (props) => {
         fetchColumns()
     }, [])
 
-    if (tableIsloading || !columns) return <>wait...</>
+    if (tableIsloading || !state.columns) return <>wait...</>
 
     return (
         <div id="kanban-container" style={{ position: 'relative' }}>
-            <DndContext
-                height={'100000px'}
-                style={{ height: '100000px' }}
-                onDragEnd={dragEndHandler}
-            // style={{ position: 'reltaive' }}
-            >
+            <DndContext onDragEnd={dragEndHandler}>
                 <ToolBar
                     form={toolbarForm}
                     size={size}
@@ -167,24 +161,21 @@ const Kanbanboard = (props) => {
                 />
 
                 <div style={{ display: 'flex' }}>
-                    {columns.map((column) => (
-                        <Column
-                            key={column.id}
-                            size={size}
-                            columnsItems={state.columnsItems}
-                            dispatch={dispatch}
-                            {...column}
-                        />
-                    ))}
+                    {state.columns &&
+                        state.columns.map((column) => (
+                            <Column
+                                key={column.id}
+                                size={size}
+                                columnsItems={state.columnsItems}
+                                dispatch={dispatch}
+                                state={state}
+                                {...column}
+                            />
+                        ))}
                 </div>
             </DndContext>
         </div>
     )
-    return null
-}
-Kanbanboard.propTypes = {
-    columns: PropTypes.array,
-    cards: PropTypes.array,
 }
 
 function Column(props) {
@@ -193,33 +184,35 @@ function Column(props) {
     })
 
     const { token } = theme.useToken()
-    const [cardsData, setCardsData] = useState()
+    const { columnsItems, dispatch } = props
+    let cardsData = props.state.columnsItems?.find(
+        (c) => c.columnId === props.id
+    )
+
+    // const [cardsData, setCardsData] = useState()
 
     const fetchCards = (colId, page, size) => {
         api.get(
             `http://localhost:3000/col${colId}?_page=${page}&_per_page=${size}`
         )
             .then((res) => {
-                setCardsData((prev) => {
-                    const newState = {
-                        ...res.data,
-                        data: prev
-                            ? [...prev.data, ...res?.data.data]
-                            : [...res?.data.data],
-                    }
-                    return newState
+                dispatch({
+                    type: 'ADD_NEW_CARDS',
+                    payload: { columnId: colId, responseData: res.data },
                 })
             })
             .catch((err) => {
                 console.log(err)
             })
-
-        return cardsData
     }
 
     useEffect(() => {
         fetchCards(props.id, 1, props.size)
     }, [])
+
+    useEffect(() => {
+        props.state.columnsItems?.find((c) => c.columnId === props.id)
+    }, [props.state])
 
     const style = {
         flex: 1,
@@ -244,6 +237,7 @@ function Column(props) {
                     width: '100%',
                     position: 'sticky',
                     backgroundColor: 'rgb(165, 165, 165)',
+                    // backgroundColor:token.colorPrimary,
                     padding: '.3rem 0',
                     color: 'white',
                 }}
@@ -263,20 +257,22 @@ function Column(props) {
                         flexDirection: 'column',
                         alignItems: 'center',
                     }}
-                    dataLength={cardsData?.data.length || 0}
+                    dataLength={cardsData?.data?.length || 0}
                     next={() => {
                         fetchCards(props.id, cardsData?.next, props.size)
                     }}
                     hasMore={cardsData?.next < cardsData?.last}
-                    // hasMore={true}
                     loader={null}
                     endMessage={null}
                     scrollableTarget="scrollableDiv"
                 >
-                    {cardsData &&
-                        cardsData?.data.map((card) => (
+                    {cardsData?.data?.length > 0 ? (
+                        cardsData?.data?.map((card) => (
                             <Card key={card.id} {...card} />
-                        ))}
+                        ))
+                    ) : (
+                        <span>آیتمی وجود ندارد.</span>
+                    )}
                 </InfiniteScroll>
             </div>
         </div>
@@ -291,11 +287,12 @@ Column.propTypes = {
 function Card(props) {
     const { attributes, listeners, setNodeRef, transform } = useDraggable({
         id: props.id,
+        data: { columnId: props.columnId },
     })
     const style = transform
         ? {
-            transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-        }
+              transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+          }
         : undefined
 
     const { token } = theme.useToken()
@@ -313,54 +310,99 @@ function Card(props) {
             label: 'توضیحات',
             children: props?.description || '__',
         },
-        {
-            key: '3',
-            title: 'date',
-            label: 'تاریخ ایجاد',
-            children: props.date || '__',
-        },
     ]
     return (
         <div
+            {...listeners}
+            {...attributes}
             ref={setNodeRef}
             style={{
-                width: '100%',
-                minHeight: 110,
+                userSelect: 'none',
+                minWidth: '250px',
+                // maxWidth: '250px',
+                // height:"fit-content",
+                minHeight: 130,
                 margin: '5px 0px',
-                padding: '5px',
+                padding: '5px 10px',
                 borderRadius: token.borderRadius,
                 backgroundColor: token.colorBgContainer,
                 border: `1px solid ${token.colorBorderSecondary}`,
                 boxShadow: token.boxShadow,
+                // zIndex: '1000',
                 ...style,
             }}
         >
-            <div
-                {...listeners}
-                {...attributes}
+            <Row
+                gutter={24}
                 style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    padding: '5px',
+                    alignItems: 'center',
                 }}
             >
-                id: {props.id}
-                <div style={{ width: 10, cursor: 'move' }}>
-                    <HolderOutlined style={{ fontSize: 15 }} />
-                </div>
-            </div>
-            <dl>
-                {items.map((item) => {
-                    return (
-                        <div key={item.key} style={{ display: 'flex' }}>
-                            <dt style={{ fontSize: '10px' }}>{item.label}</dt>
-                            <dd style={{ margin: '0 10px', fontSize: '12px' }}>
-                                {props[`${item.title}`] || '__'}
-                            </dd>
-                        </div>
-                    )
-                })}
-            </dl>
+                <Col
+                    xs={8}
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        // padding: '5px 10px',
+                    }}
+                >
+                    <span style={{ fontSize: '12px' }}>
+                        <NumberOutlined />{' '}
+                        <span>
+                            {props.number}
+                            {props.id}
+                        </span>
+                    </span>
+                </Col>
+
+                <Col lg={13} style={{ padding: '0' }}>
+                    <div>
+                        <span style={{ fontSize: '12px' }}>عنوان: </span>
+                        <span>_</span>
+                    </div>
+                </Col>
+
+                <Col lg={3}>
+                    <div
+                        {...listeners}
+                        {...attributes}
+                        style={{ width: 10, cursor: 'move' }}
+                    >
+                        <HolderOutlined style={{ fontSize: 15 }} />
+                    </div>
+                </Col>
+            </Row>
+
+            <Row gutter={24}>
+                <Col style={{ margin: '1rem 0' }}>
+                    <div style={{ fontSize: '10px' }}>
+                        <span>تاریخ ایجاد:</span> <span>1403/2/2</span>
+                    </div>
+                </Col>
+            </Row>
+            <Row
+                gutter={24}
+                style={{ display: 'flex', justifyContent: 'space-between' }}
+            >
+                <Col xs={12}>
+                    <AvatarGroup role={'مسئول'} data={props.liables} />{' '}
+                </Col>
+                <Col>
+                    <AvatarGroup role={'سرپرست'} data={props.supervisors} />
+                </Col>
+            </Row>
+
+            <footer>
+                <dl
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        padding: '0 1rem',
+                    }}
+                ></dl>
+            </footer>
         </div>
     )
 }
