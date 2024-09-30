@@ -1,14 +1,62 @@
-import { Col, Form, Input, InputNumber, Row, Select, theme } from 'antd'
-import { useEffect, useReducer, useState } from 'react'
-import { DndContext } from '@dnd-kit/core'
-import { useDroppable } from '@dnd-kit/core'
-import { useDraggable } from '@dnd-kit/core'
-import PropTypes from 'prop-types'
-import api from '../axios-proxy'
+import React, { act, useEffect, useReducer, useState } from 'react'
+import ReactDOM from 'react-dom'
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd'
+import api from '../../axios-proxy'
 import InfiniteScroll from 'react-infinite-scroll-component'
-import { useDebounce } from 'react-use'
+import { Col, Form, Input, InputNumber, Row, Select, theme } from 'antd'
 import { HolderOutlined, NumberOutlined } from '@ant-design/icons'
-import AvatarGroup from './AvatarGroup'
+import AvatarGroup from '../AvatarGroup'
+
+// fake data generator
+const getItems = (count, offset = 0) =>
+    Array.from({ length: count }, (v, k) => k).map((k) => ({
+        id: `item-${k + offset}-${new Date().getTime()}`,
+        content: `item ${k + offset}`,
+    }))
+
+const reorder = (list, startIndex, endIndex) => {
+    const result = Array.from(list)
+    const [removed] = result.splice(startIndex, 1)
+    result.splice(endIndex, 0, removed)
+
+    return result
+}
+
+/**
+ * Moves an item from one list to another list.
+ */
+const move = (source, destination, droppableSource, droppableDestination) => {
+    const sourceClone = Array.from(source)
+    const destClone = Array.from(destination)
+    const [removed] = sourceClone.splice(droppableSource.index, 1)
+
+    destClone.splice(droppableDestination.index, 0, removed)
+
+    const result = {}
+    result[droppableSource.droppableId] = sourceClone
+    result[droppableDestination.droppableId] = destClone
+
+    return result
+}
+const grid = 8
+
+const getItemStyle = (isDragging, draggableStyle) => ({
+    // some basic styles to make the items look a bit nicer
+    userSelect: 'none',
+    padding: grid * 2,
+    margin: `0 0 ${grid}px 0`,
+
+    // change background colour if dragging
+    background: isDragging ? 'lightgreen' : 'grey',
+
+    // styles we need to apply on draggables
+    ...draggableStyle,
+})
+const getListStyle = (isDraggingOver) => ({
+    background: isDraggingOver ? 'lightblue' : 'lightgrey',
+    padding: grid,
+    width: '100%',
+})
 
 const cardReducer = (state, action) => {
     if (action.type === 'SET_COLUMNS') {
@@ -28,9 +76,8 @@ const cardReducer = (state, action) => {
     if (action.type === 'ADD_NEW_CARDS') {
         let newState = { ...state }
         newState.columnsItems.forEach((columnItem, index) => {
-            if (action.payload.columnId === columnItem.columnId) {
+            if (+action.payload.columnId === +columnItem.columnId) {
                 //find the column
-
                 newState.columnsItems[index] = {
                     columnId: action.payload.columnId,
                     ...action.payload.responseData,
@@ -41,7 +88,6 @@ const cardReducer = (state, action) => {
                 }
             }
         })
-
         return newState
     }
 
@@ -59,25 +105,36 @@ const cardReducer = (state, action) => {
             if (+columnItem.columnId === action.payload.currentColumn) {
                 // remove card from current column
 
-                columnItem.data = columnItem.data.filter((card) => {
-                    return card.id !== action.payload.cardId
-                })
+                // columnItem.data = columnItem.data.filter((card) => {
+                //     return card.id !== action.payload.cardId
+                // })
+
+                // console.log(action.payload)
+                columnItem.data.splice(action.payload.sourceIndex, 1)
             }
 
             if (columnItem.columnId === action.payload.targetColumn) {
                 // add card to target column
-                columnItem.data.push({
+
+                // columnItem.data.push({
+                //     id: action.payload.cardId,
+                //     columnId: +action.payload.targetColumn,
+                // })
+
+                columnItem.data.splice(action.payload.destinationIndex, 0, {
                     id: action.payload.cardId,
                     columnId: +action.payload.targetColumn,
                 })
             }
         })
+        // console.log(newState)
+
         return newState
     }
 }
 
-const Kanbanboard = () => {
-    const [tableIsloading, setTableIsLoading] = useState(false)
+function QuoteApp() {
+    // const [state, setState] = useState([getItems(10), getItems(5, 10)])
 
     const [state, dispatch] = useReducer(cardReducer, {
         columns: [],
@@ -85,51 +142,15 @@ const Kanbanboard = () => {
     })
 
     const [toolbarForm] = Form.useForm()
-
     const [size, setSize] = useState(5)
 
-    async function dragEndHandler(e) {
-        // api.patch('api/somet-endpoint', {
-        //     cardId: e.active.id,
-        //     newState: e.over.id,
-        // })
-        //     .then((res) => {
-        //         console.log('hello')
-        //         dispatch({
-        //             type: 'MOVE_CARD',
-
-        //             payload: {
-        //                 cardId: e.active.id,
-        //                 currentColumn: e.active.data.current.columnId,
-        //                 targetColumn: e.over.id,
-        //             },
-        //         })
-        //     })
-        //     .catch((err) => {
-        //         console.log(err)
-        //     })
-        dispatch({
-            type: 'MOVE_CARD',
-
-            payload: {
-                cardId: e.active.id,
-                currentColumn: e.active.data.current.columnId,
-                targetColumn: e.over.id,
-            },
-        })
-    }
-
     const fetchColumns = () => {
-        setTableIsLoading(true)
         api.get(`http://localhost:3000/columns/`)
             .then((res) => {
                 dispatch({ type: 'SET_COLUMNS', payload: res.data })
             })
             .catch((err) => {
                 console.log(err)
-            })
-            .finally(() => {
-                setTableIsLoading(false)
             })
     }
 
@@ -148,49 +169,139 @@ const Kanbanboard = () => {
         fetchColumns()
     }, [])
 
-    if (tableIsloading || !state.columns) return <>wait...</>
+    function onDragEnd(result) {
+        const { source, destination } = result
+
+        const sourceColumn = state.columnsItems.find(
+            (c) => c.columnId === +source.droppableId + 1
+        )
+
+        const cardData = sourceColumn?.data[source.index]
+
+        // console.log({
+        //     cardId: cardData.id,
+        //     currentColumn: source.droppableId,
+        //     targetColumn: destination.droppableId,
+        // })
+
+        // console.log( {
+        //         cardId: cardData.id,
+        //         sourceIndex: source.index,
+        //         destinationIndex: destination.index,
+        //         currentColumn: +source.droppableId,
+        //         targetColumn: destination.droppableId,
+        //     })
+
+        dispatch({
+            type: 'MOVE_CARD',
+            payload: {
+                cardId: cardData.id,
+                sourceIndex: source.index,
+                destinationIndex: destination.index,
+                currentColumn: +source.droppableId + 1,
+                targetColumn: +destination.droppableId + 1,
+            },
+        })
+
+        // dropped outside the list
+        // if (!destination) {
+        //     return
+        // }
+
+        // const sInd = +source.droppableId
+        // const dInd = +destination.droppableId
+
+        // if (sInd === dInd) {
+        //     const items = reorder(state[sInd], source.index, destination.index)
+        //     const newState = [...state]
+        //     newState[sInd] = items
+        //     setState(newState)
+        // } else {
+        //     const result = move(state[sInd], state[dInd], source, destination)
+        //     const newState = [...state]
+        //     newState[sInd] = result[sInd]
+        //     newState[dInd] = result[dInd]
+
+        //     setState(newState.filter((group) => group.length))
+        // }
+    }
 
     return (
-        <div id="kanban-container" style={{ position: 'relative' }}>
-            <DndContext onDragEnd={dragEndHandler}>
-                <ToolBar
-                    form={toolbarForm}
-                    size={size}
-                    onFormChange={formChangeHandler}
-                    onSizeChange={sizeChangeHandler}
-                />
-
-                <div style={{ display: 'flex' }}>
-                    {state.columns &&
-                        state.columns.map((column) => (
-                            <Column
-                                key={column.id}
+        <div>
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    overflowX: 'scroll',
+                }}
+            >
+                <DragDropContext onDragEnd={onDragEnd}>
+                    <Row gutter={24}>
+                        <Col xs={24}>
+                            <ToolBar
+                                form={toolbarForm}
                                 size={size}
-                                columnsItems={state.columnsItems}
-                                dispatch={dispatch}
-                                state={state}
-                                {...column}
+                                onFormChange={formChangeHandler}
+                                onSizeChange={sizeChangeHandler}
                             />
-                        ))}
-                </div>
-            </DndContext>
+                        </Col>
+                        <Col style={{ display: 'flex' }} xs={8}>
+                            {state.columns.map((c, ind) => (
+                                <Droppable key={ind} droppableId={`${ind}`}>
+                                    {(provided, snapshot) => {
+                                        const columnItems =
+                                            state.columnsItems[ind]
+
+                                        return (
+                                            <div
+                                                className="container"
+                                                style={{
+                                                    margin: '.5rem',
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        justifyContent:
+                                                            'center',
+                                                        top: '3rem',
+                                                        width: '100%',
+                                                        position: 'sticky',
+                                                        backgroundColor:
+                                                            'rgb(165, 165, 165)',
+                                                        // backgroundColor:token.colorPrimary,
+                                                        padding: '.3rem 0',
+                                                        color: 'white',
+                                                    }}
+                                                >
+                                                    ستون شماره {ind}
+                                                </div>
+                                                <Column
+                                                    id={ind + 1}
+                                                    provided={provided}
+                                                    style={getListStyle(
+                                                        snapshot.isDraggingOver
+                                                    )}
+                                                    columnItems={columnItems}
+                                                    state={state}
+                                                    dispatch={dispatch}
+                                                />
+                                            </div>
+                                        )
+                                    }}
+                                </Droppable>
+                            ))}
+                        </Col>
+                    </Row>
+                </DragDropContext>
+            </div>
         </div>
     )
 }
 
-function Column(props) {
-    const { isOver, setNodeRef } = useDroppable({
-        id: props.id,
-    })
+export default QuoteApp
 
-    const { token } = theme.useToken()
-    const { columnsItems, dispatch } = props
-    let cardsData = props.state.columnsItems?.find(
-        (c) => c.columnId === props.id
-    )
-
-    // const [cardsData, setCardsData] = useState()
-
+const Column = ({ provided, style, columnItems, state, id, dispatch }) => {
     const fetchCards = (colId, page, size) => {
         api.get(
             `http://localhost:3000/col${colId}?_page=${page}&_per_page=${size}`
@@ -198,7 +309,7 @@ function Column(props) {
             .then((res) => {
                 dispatch({
                     type: 'ADD_NEW_CARDS',
-                    payload: { columnId: colId, responseData: res.data },
+                    payload: { columnId: id, responseData: res.data },
                 })
             })
             .catch((err) => {
@@ -207,210 +318,179 @@ function Column(props) {
     }
 
     useEffect(() => {
-        fetchCards(props.id, 1, props.size)
+        fetchCards(id, 1, 5)
     }, [])
 
-    useEffect(() => {
-        props.state.columnsItems?.find((c) => c.columnId === props.id)
-    }, [props.state])
+    // useEffect(() => {
+    //     console.log(columnItems)
+    // }, [state])
 
-    const style = {
-        flex: 1,
-        padding: 2,
-        height: '100%',
-        display: 'flex',
-        margin: '0px 2px',
-        alignItems: 'flex-start',
-        flexDirection: 'column',
-        backgroundColor: isOver
-            ? token.colorBgTextActive
-            : token.colorBgTextHover,
-    }
-
-    return (
-        <div ref={setNodeRef} style={style}>
-            <div
-                style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    top: '3rem',
-                    width: '100%',
-                    position: 'sticky',
-                    backgroundColor: 'rgb(165, 165, 165)',
-                    // backgroundColor:token.colorPrimary,
-                    padding: '.3rem 0',
-                    color: 'white',
-                }}
-            >
-                ستون شماره {props.id}
-            </div>
-            <div
-                id="scrollableDiv"
-                style={{ width: '100%', padding: '0.5rem' }}
-            >
-                <InfiniteScroll
-                    height={'30rem'}
-                    // width={'200px'}
-                    style={{
-                        display: 'flex',
-                        flex: '1 1 auto',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                    }}
-                    dataLength={cardsData?.data?.length || 0}
-                    next={() => {
-                        fetchCards(props.id, cardsData?.next, props.size)
-                    }}
-                    hasMore={cardsData?.next < cardsData?.last}
-                    loader={null}
-                    endMessage={null}
-                    scrollableTarget="scrollableDiv"
-                >
-                    {cardsData?.data?.length > 0 ? (
-                        cardsData?.data?.map((card) => (
-                            <Card key={card.id} {...card} />
-                        ))
-                    ) : (
-                        <span>آیتمی وجود ندارد.</span>
-                    )}
-                </InfiniteScroll>
-            </div>
-        </div>
-    )
-}
-Column.propTypes = {
-    id: PropTypes.string,
-    name: PropTypes.string,
-    children: PropTypes.object,
-}
-
-function Card(props) {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({
-        id: props.id,
-        data: { columnId: props.columnId },
-    })
-    const style = transform
-        ? {
-              transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-          }
-        : undefined
-
-    const { token } = theme.useToken()
-
-    const items = [
-        {
-            key: '1',
-            title: 'title',
-            label: 'عنوان',
-            children: props?.title || '__',
-        },
-        {
-            key: '2',
-            title: 'description',
-            label: 'توضیحات',
-            children: props?.description || '__',
-        },
-    ]
     return (
         <div
-            {...listeners}
-            {...attributes}
-            ref={setNodeRef}
-            style={{
-                userSelect: 'none',
-                minWidth: '250px',
-                // maxWidth: '250px',
-                // height:"fit-content",
-                minHeight: 130,
-                margin: '5px 0px',
-                padding: '5px 10px',
-                borderRadius: token.borderRadius,
-                backgroundColor: token.colorBgContainer,
-                border: `1px solid ${token.colorBorderSecondary}`,
-                boxShadow: token.boxShadow,
-                // zIndex: '1000',
-                ...style,
-            }}
+            ref={provided.innerRef}
+            style={{ ...style, background: 'white' }}
+            {...provided.droppableProps}
         >
-            <Row
-                gutter={24}
+            <InfiniteScroll
+                height={'30rem'}
+                width={'500px'}
                 style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
+                    flex: '1 1 auto',
+                    flexDirection: 'column',
                     alignItems: 'center',
+                    padding: '.5rem 1rem',
                 }}
+                dataLength={columnItems?.data?.length || 0}
+                next={() => {
+                    fetchCards(id, columnItems?.next, 5)
+                }}
+                hasMore={columnItems?.next < columnItems?.last}
+                loader={null}
+                endMessage={null}
+                scrollableTarget="scrollableDiv"
             >
-                <Col
-                    xs={8}
-                    style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        // padding: '5px 10px',
-                    }}
-                >
-                    <span style={{ fontSize: '12px' }}>
-                        <NumberOutlined />{' '}
-                        <span>
-                            {props.number}
-                            {props.id}
-                        </span>
-                    </span>
-                </Col>
-
-                <Col lg={13} style={{ padding: '0' }}>
-                    <div>
-                        <span style={{ fontSize: '12px' }}>عنوان: </span>
-                        <span>_</span>
-                    </div>
-                </Col>
-
-                <Col lg={3}>
-                    <div
-                        {...listeners}
-                        {...attributes}
-                        style={{ width: 10, cursor: 'move' }}
+                {columnItems?.data.map((item, index) => (
+                    <Draggable
+                        key={item.id}
+                        draggableId={item.id}
+                        index={index}
                     >
-                        <HolderOutlined style={{ fontSize: 15 }} />
-                    </div>
-                </Col>
-            </Row>
-
-            <Row gutter={24}>
-                <Col style={{ margin: '1rem 0' }}>
-                    <div style={{ fontSize: '10px' }}>
-                        <span>تاریخ ایجاد:</span> <span>1403/2/2</span>
-                    </div>
-                </Col>
-            </Row>
-            <Row
-                gutter={24}
-                style={{ display: 'flex', justifyContent: 'space-between' }}
-            >
-                <Col xs={12}>
-                    <AvatarGroup role={'مسئول'} data={props.liables} />{' '}
-                </Col>
-                <Col>
-                    <AvatarGroup role={'سرپرست'} data={props.supervisors} />
-                </Col>
-            </Row>
-
-            <footer>
-                <dl
-                    style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        padding: '0 1rem',
-                    }}
-                ></dl>
-            </footer>
+                        {(provided, snapshot) => (
+                            // <div
+                            //     id={44}
+                            //     ref={provided.innerRef}
+                            //     {...provided.draggableProps}
+                            //     {...provided.dragHandleProps}
+                            //     style={getItemStyle(
+                            //         snapshot.isDragging,
+                            //         provided.draggableProps.style
+                            //     )}
+                            // >
+                            //     <div
+                            //         style={{
+                            //             display: 'flex',
+                            //             justifyContent: 'space-around',
+                            //         }}
+                            //     >
+                            //         {item.id}
+                            //     </div>
+                            // </div>
+                            <Card
+                                id={item.id}
+                                provided={provided}
+                                columnId={item.columnId}
+                                style={getItemStyle(
+                                    snapshot.isDragging,
+                                    provided.draggableProps.style
+                                )}
+                            />
+                        )}
+                    </Draggable>
+                ))}
+                {provided.placeholder}
+            </InfiniteScroll>
         </div>
     )
 }
-Card.propTypes = {
-    id: PropTypes.string,
-    title: PropTypes.string,
-    content: PropTypes.object,
-    footer: PropTypes.object,
+function Card(props) {
+    const { token } = theme.useToken()
+
+    const { provided } = props
+
+    return (
+        <div
+            style={props.style}
+            ref={provided.innerRef}
+            {...provided.draggableProps}
+            {...provided.dragHandleProps}
+        >
+            <div
+                style={{
+                    userSelect: 'none',
+                    minWidth: '250px',
+                    // maxWidth: '250px',
+                    // height:"fit-content",
+                    minHeight: 130,
+                    margin: '5px 0px',
+                    padding: '5px 10px',
+                    borderRadius: token.borderRadius,
+                    backgroundColor: token.colorBgContainer,
+                    border: `1px solid ${token.colorBorderSecondary}`,
+                    boxShadow: token.boxShadow,
+                    // zIndex: '1000',
+                }}
+            >
+                <Row
+                    gutter={24}
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                    }}
+                >
+                    <Col
+                        xs={8}
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            // padding: '5px 10px',
+                        }}
+                    >
+                        <span style={{ fontSize: '12px' }}>
+                            <NumberOutlined />{' '}
+                            <span>
+                                {props.number}
+                                {props.id}
+                            </span>
+                        </span>
+                    </Col>
+
+                    <Col lg={13} style={{ padding: '0' }}>
+                        <div>
+                            <span style={{ fontSize: '12px' }}>عنوان: </span>
+                            <span>_</span>
+                        </div>
+                    </Col>
+
+                    <Col lg={3}>
+                        <div style={{ width: 10, cursor: 'move' }}>
+                            <HolderOutlined style={{ fontSize: 15 }} />
+                        </div>
+                    </Col>
+                </Row>
+
+                <Row gutter={24}>
+                    <Col style={{ margin: '1rem 0' }}>
+                        <div style={{ fontSize: '10px' }}>
+                            <span>تاریخ ایجاد:</span> <span>1403/2/2</span>
+                        </div>
+                    </Col>
+                </Row>
+                <Row
+                    gutter={24}
+                    style={{ display: 'flex', justifyContent: 'space-between' }}
+                >
+                    <Col xs={12}>
+                        <AvatarGroup role={'مسئول'} data={props.liables} />{' '}
+                    </Col>
+                    <Col>
+                        <AvatarGroup role={'سرپرست'} data={props.supervisors} />
+                    </Col>
+                </Row>
+
+                <footer>
+                    <dl
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            padding: '0 1rem',
+                        }}
+                    ></dl>
+                </footer>
+            </div>{' '}
+        </div>
+    )
 }
 
 const ToolBar = ({ form, size, onFormChange, onSizeChange }) => {
@@ -469,7 +549,7 @@ const ToolBar = ({ form, size, onFormChange, onSizeChange }) => {
                 >
                     <Col xs={24} lg={8}>
                         <Form.Item
-                            style={{ height: 'fit-content' }}
+                            style={{ height: 'fit-content', margin: '0' }}
                             name="resource"
                             label={`منبع`}
                         >
@@ -485,7 +565,7 @@ const ToolBar = ({ form, size, onFormChange, onSizeChange }) => {
                         <Form.Item
                             name="search-query"
                             label={`جستجو`}
-                            style={{ height: 'fit-content' }}
+                            style={{ height: 'fit-content', margin: '0' }}
                         >
                             <Input />
                         </Form.Item>
@@ -495,7 +575,7 @@ const ToolBar = ({ form, size, onFormChange, onSizeChange }) => {
                         <Form.Item
                             name="size"
                             label={`اندازه`}
-                            style={{ height: 'fit-content' }}
+                            style={{ height: 'fit-content', margin: '0' }}
                         >
                             <InputNumber
                                 onChange={onSizeChange}
@@ -509,5 +589,3 @@ const ToolBar = ({ form, size, onFormChange, onSizeChange }) => {
         </>
     )
 }
-
-export default Kanbanboard
