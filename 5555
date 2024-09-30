@@ -93,41 +93,38 @@ const cardReducer = (state, action) => {
 
     if (action.type === 'MOVE_CARD') {
         const newState = { ...state }
+        const { cardId, source, destination } = action.payload
 
-        newState.columnsItems.forEach((columnItem) => {
-            if (
-                +action.payload.currentColumn === +action.payload.targetColumn
-            ) {
-                // if current and targe is the same do nothing
+        const {
+            sourceIndex = source.index,
+            sourceColumnId = +source.droppableId + 1,
+        } = source
+
+        const {
+            destinationIndex = destination.index,
+            destinationColumnId = +destination.droppableId + 1,
+        } = destination
+
+        newState.columnsItems.forEach((c) => {
+            if (+sourceColumnId === destinationColumnId) {
+                // If source and destination are the same, do nothing.
                 return state
             }
 
-            if (+columnItem.columnId === action.payload.currentColumn) {
+            if (+c.columnId === sourceColumnId) {
                 // remove card from current column
-
-                // columnItem.data = columnItem.data.filter((card) => {
-                //     return card.id !== action.payload.cardId
-                // })
-
-                // console.log(action.payload)
-                columnItem.data.splice(action.payload.sourceIndex, 1)
+                c.data.splice(sourceIndex, 1)
             }
 
-            if (columnItem.columnId === action.payload.targetColumn) {
+            if (c.columnId === destinationColumnId) {
                 // add card to target column
 
-                // columnItem.data.push({
-                //     id: action.payload.cardId,
-                //     columnId: +action.payload.targetColumn,
-                // })
-
-                columnItem.data.splice(action.payload.destinationIndex, 0, {
-                    id: action.payload.cardId,
-                    columnId: +action.payload.targetColumn,
+                c.data.splice(destinationIndex, 0, {
+                    id: cardId,
+                    columnId: destinationColumnId,
                 })
             }
         })
-        // console.log(newState)
 
         return newState
     }
@@ -196,10 +193,8 @@ function QuoteApp() {
             type: 'MOVE_CARD',
             payload: {
                 cardId: cardData.id,
-                sourceIndex: source.index,
-                destinationIndex: destination.index,
-                currentColumn: +source.droppableId + 1,
-                targetColumn: +destination.droppableId + 1,
+                source,
+                destination,
             },
         })
 
